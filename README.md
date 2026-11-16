@@ -1,4 +1,6 @@
-# たんたんご！ — 単語学習PWA
+# たんたんご！ — 単語学習PWA（TOPIKⅡ 100語版）
+
+同梱CSVは「第47回TOPIKⅡ_上級韓国語100単語(1).csv」（100語）に変更済みです。
 
 iPhoneのSafariでホーム画面に追加できる、オフライン対応の単語学習アプリです。
 
@@ -51,7 +53,7 @@ Tantango_PWA/
 │   ├── icon-512.png
 │   └── apple-touch-icon.png
 └── VocabularySets/
-    └── 韓国語単語41語_例文付き(1).csv
+    └── 第47回TOPIKⅡ_上級韓国語100単語(1).csv
 ```
 
 公開後はMacやXcodeなしで使えます。GitHub Pagesのサイト名・URLは、ご自身のGitHubアカウントとリポジトリ名に依存します。
