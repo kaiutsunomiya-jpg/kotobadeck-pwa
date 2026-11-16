@@ -1,7 +1,7 @@
 'use strict';
 
 // 公開ページに最初から表示するCSV。端末内だけのCSVは「CSVを追加」から読み込みます。
-const BUNDLED_CSV_FILES = ['韓国語単語41語_例文付き(1).csv'];
+const BUNDLED_CSV_FILES = ['第47回TOPIKⅡ_上級韓国語100単語(1).csv'];
 const DB_NAME = 'kotobadeck-local-sets'; // 旧版と同じDB名にし、追加済みCSVを引き継ぐ
 const DECK_STORE = 'vocabulary-sets';
 const REVIEW_STORE = 'review-flags';
