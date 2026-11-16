@@ -1,24 +1,22 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="ja">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#f6f8f6">
+  <meta name="theme-color" content="#f7faf7">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <meta name="apple-mobile-web-app-title" content="KotobaDeck">
-  <meta name="description" content="CSVから単語を学べる、オフライン対応の単語学習アプリ">
+  <meta name="apple-mobile-web-app-title" content="たんたんご！">
+  <meta name="description" content="淡々と単語をGO！">
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
   <link rel="apple-touch-icon" sizes="180x180" href="./icons/apple-touch-icon.png">
   <link rel="stylesheet" href="./styles.css">
-  <title>KotobaDeck | 単語学習</title>
+  <title>たんたんご！</title>
 </head>
 <body>
-  <div id="app" class="app" aria-live="off">
-    <div class="initial-loader" role="status">単語セットを読み込んでいます…</div>
-  </div>
-  <input type="file" id="csvFileInput" accept=".csv,text/csv,text/plain" multiple hidden>
+  <div id="app" class="app"><div class="loading">読み込み中…</div></div>
+  <input id="csvFileInput" type="file" accept=".csv,text/csv,text/plain" multiple hidden>
   <script src="./app.js" defer></script>
 </body>
 </html>
