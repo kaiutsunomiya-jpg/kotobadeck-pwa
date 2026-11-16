@@ -1,8 +1,8 @@
-const CACHE='tantango-pwa-v2';
+const CACHE = 'tantango-pwa-v3';
 const FILES=[
   './','./index.html','./app.js','./styles.css','./manifest.webmanifest',
   './icons/icon-192.png','./icons/icon-512.png','./icons/apple-touch-icon.png',
-  './VocabularySets/%E9%9F%93%E5%9B%BD%E8%AA%9E%E5%8D%98%E8%AA%9E41%E8%AA%9E_%E4%BE%8B%E6%96%87%E4%BB%98%E3%81%8D(1).csv'
+  './VocabularySets/第47回TOPIKⅡ_上級韓国語100単語(1).csv'
 ];
 self.addEventListener('install',event=>{
   event.waitUntil(caches.open(CACHE).then(cache=>cache.addAll(FILES)).then(()=>self.skipWaiting()));
