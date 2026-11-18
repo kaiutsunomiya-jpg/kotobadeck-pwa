@@ -1,5 +1,6 @@
 'use strict';
 
+// v5: 5列目に全100語の強調箇所が入力された同梱CSVを読み込みます。
 // 公開ページに最初から表示するCSV。端末内だけのCSVは「CSVを追加」から読み込みます。
 const BUNDLED_CSV_FILES = ['第47回TOPIKⅡ_上級韓国語100単語(1).csv'];
 const DB_NAME = 'kotobadeck-local-sets'; // 旧版と同じDB名にし、追加済みCSVを引き継ぐ
@@ -402,7 +403,7 @@ async function boot() {
   const bundled=[];
   for (const fileName of BUNDLED_CSV_FILES) {
     try {
-      const response=await fetch(`./VocabularySets/${encodeURIComponent(fileName)}`);
+      const response=await fetch(`./VocabularySets/${encodeURIComponent(fileName)}?v=5`);
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const entries=parseCSV(await response.text());
       bundled.push({id:`bundled:${fileName}`,kind:'bundled',fileName,title:basename(fileName),entries});

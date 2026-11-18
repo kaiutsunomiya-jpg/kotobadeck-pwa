@@ -1,8 +1,8 @@
-const CACHE='tantango-pwa-v4';
+const CACHE='tantango-pwa-v5';
 const FILES=[
-  './','./index.html','./app.js','./styles.css','./manifest.webmanifest',
+  './','./index.html','./app.js?v=5','./styles.css?v=5','./manifest.webmanifest',
   './icons/icon-192.png','./icons/icon-512.png','./icons/apple-touch-icon.png',
-  './VocabularySets/%E7%AC%AC47%E5%9B%9ETOPIK%E2%85%A1_%E4%B8%8A%E7%B4%9A%E9%9F%93%E5%9B%BD%E8%AA%9E100%E5%8D%98%E8%AA%9E(1).csv'
+  './VocabularySets/%E7%AC%AC47%E5%9B%9ETOPIK%E2%85%A1_%E4%B8%8A%E7%B4%9A%E9%9F%93%E5%9B%BD%E8%AA%9E100%E5%8D%98%E8%AA%9E(1).csv?v=5'
 ];
 self.addEventListener('install',event=>{
   event.waitUntil(caches.open(CACHE).then(cache=>cache.addAll(FILES)).then(()=>self.skipWaiting()));
