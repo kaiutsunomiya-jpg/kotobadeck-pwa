@@ -5,7 +5,7 @@ const BUNDLED_CSV_FILES = ['第47回TOPIKⅡ_上級韓国語100単語(1).csv'];
 const DB_NAME = 'kotobadeck-local-sets'; // 旧版と同じDB名にし、追加済みCSVを引き継ぐ
 const DECK_STORE = 'vocabulary-sets';
 const REVIEW_STORE = 'review-flags';
-const DB_VERSION = 2;
+const DB_VERSION = 2; // 変更しない：旧アプリのIndexedDBをそのまま使う
 
 const app = document.getElementById('app');
 const fileInput = document.getElementById('csvFileInput');
@@ -28,6 +28,19 @@ const svg = {
 
 function esc(text) { return String(text ?? '').replace(/[&<>"']/g, character => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[character])); }
 function basename(fileName) { return String(fileName).replace(/\.csv$/i, ''); }
+// CSV 5列目の文字列が例文と完全一致する箇所を、最初の1件だけ強調する。
+// すべてHTMLエスケープし、CSVからHTMLやスクリプトを実行させない。
+function formatExample(example, highlight) {
+  const source = String(example ?? '');
+  const fragment = String(highlight ?? '');
+  if (!fragment) return esc(source);
+  const at = source.indexOf(fragment);
+  if (at < 0) return esc(source);
+  return esc(source.slice(0, at)) +
+    `<strong class="example-highlight">${esc(fragment)}</strong>` +
+    esc(source.slice(at + fragment.length));
+}
+
 function currentSet() { return state.sets.find(s => s.id === state.selectedSetId) || null; }
 function reviewId(setId, entryKey) { return JSON.stringify([setId, entryKey]); }
 function isStarred(entry) { return state.starred.has(reviewId(state.selectedSetId, entry.key)); }
@@ -68,18 +81,26 @@ function parseCSV(contents) {
   if (field || row.length) { row.push(field); rows.push(row); }
   const nonempty = rows.filter(row => row.some(cell => cell.trim()));
   const expected = ['単語','日本語訳','例文','例文の日本語訳'];
-  if (!nonempty.length || expected.some((label,index) => nonempty[0][index]?.trim() !== label) || nonempty[0].length !== 4) {
-    throw new Error('1行目は「単語,日本語訳,例文,例文の日本語訳」にしてください。');
+  const header = nonempty[0]?.map(field => field.trim()) || [];
+  // 従来の4列もそのまま読み込み、新しい5列目「強調箇所」を任意で使用できる。
+  const validHeader = (header.length === 4 || header.length === 5) &&
+    expected.every((label, index) => header[index] === label) &&
+    (header.length === 4 || header[4] === '強調箇所');
+  if (!validHeader) {
+    throw new Error('CSVの見出しは「単語,日本語訳,例文,例文の日本語訳,強調箇所」（5列目は省略可）にしてください。');
   }
   const occur = new Map();
   const entries = nonempty.slice(1).map((fields,index) => {
-    if (fields.length!==4) throw new Error(`${index+2}行目を4列にしてください。`);
-    const [word,translation,example,exampleJa] = fields.map(x=>x.trim());
+    // 5列ヘッダーの場合、空の5列目が末尾カンマで省略されていても空欄扱い。
+    if (fields.length !== header.length && !(header.length === 5 && fields.length === 4)) {
+      throw new Error(`${index+2}行目の列数が違います（${header.length}列にしてください）。`);
+    }
+    const [word,translation,example,exampleJa,highlight=''] = fields.map(x=>x.trim());
     if (!word) throw new Error(`${index+2}行目の単語が空です。`);
     const identity = JSON.stringify([word,translation]);
     const occurrence = occur.get(identity)||0;
     occur.set(identity,occurrence+1);
-    return {key: JSON.stringify([word,translation,occurrence]), word, translation, example, exampleJa};
+    return {key: JSON.stringify([word,translation,occurrence]), word, translation, example, exampleJa, highlight};
   });
   if (!entries.length) throw new Error('単語がありません。');
   return entries;
@@ -93,7 +114,7 @@ function normalizeEntries(entries) {
     const identity = JSON.stringify([word,translation]);
     const n = occurrence.get(identity) || 0;
     occurrence.set(identity,n+1);
-    return {key: JSON.stringify([word,translation,n]),word,translation,example: String(item.example ?? ''),exampleJa: String(item.exampleJa ?? item.exampleTranslation ?? '')};
+    return {key: JSON.stringify([word,translation,n]),word,translation,example: String(item.example ?? ''),exampleJa: String(item.exampleJa ?? item.exampleTranslation ?? ''),highlight: String(item.highlight ?? item.emphasis ?? '')};
   });
 }
 function openDB() {
@@ -155,7 +176,9 @@ function renderMenu() {
   const bundled=state.sets.filter(set=>set.kind==='bundled');
   const local=state.sets.filter(set=>set.kind==='local');
   app.innerHTML=`<main class="menu scrollable"><div class="menu-content">
-    <div class="brand">たんたんご！</div><div class="slogan">淡々と単語をGO！</div>
+    <div class="brand-row"><div class="brand">たんたんご！</div>
+      <img class="brand-photo" src="./icons/apple-touch-icon.png" alt="モルモットのアプリアイコン" width="68" height="68"></div>
+    <div class="slogan">淡々と単語をGO！</div>
     <h2 class="section-title">単語セット</h2>
     <div class="deck-list">${bundled.map(card).join('')}${!bundled.length && !local.length ? '<div class="empty">単語セットがありません</div>':''}</div>
     ${local.length?`<div class="local-group-label">追加した単語セット</div><div class="deck-list">${local.map(set=>`<div class="local-deck-row">${card(set)}<button type="button" class="remove-deck" data-action="delete-set" data-id="${esc(set.id)}" aria-label="${esc(set.title)}を削除">削除</button></div>`).join('')}</div>`:''}
@@ -195,20 +218,39 @@ function renderPanel() {
   if (!entry || (state.reviewOnly&&!isStarred(entry))) {viewport.classList.remove('panel-open');return;}
   viewport.classList.add('panel-open');
   app.insertAdjacentHTML('beforeend', `<aside class="example-panel" id="examplePanel" aria-label="単語と例文">
-    <div class="panel-grip"></div>
     <div class="panel-upper"><div class="panel-head"><div class="panel-term">${esc(entry.word)}</div><button type="button" class="close-panel" data-action="close-panel" aria-label="閉じる">×</button></div>
       <div class="panel-meaning">${esc(entry.translation)}</div></div>
-    <div class="panel-lower"><p class="example-source">${esc(entry.example)}</p><p class="example-translation">${esc(entry.exampleJa)}</p></div>
+    <div class="panel-lower"><p class="example-source">${formatExample(entry.example, entry.highlight)}</p><p class="example-translation">${esc(entry.exampleJa)}</p></div>
     </aside>`);
 }
 function showEntry(entryKey) {
   state.selectedEntryKey=entryKey;
+  let selectedRow=null;
   document.querySelectorAll('.word-row').forEach(row=>{
     const active=row.querySelector('.word-select')?.dataset.entrykey===entryKey;
     row.classList.toggle('selected',active);
     row.querySelector('.word-select')?.setAttribute('aria-pressed',String(active));
+    if (active) selectedRow=row;
   });
   renderPanel();
+  if (!selectedRow) {
+    const list=document.querySelector('#wordsViewport .word-list');
+    if (list) list.style.paddingBottom='';
+    return;
+  }
+  // 下半分のパネルを開いた後で、選択行を一覧の最上部に寄せる。
+  requestAnimationFrame(() => {
+    const viewport=document.getElementById('wordsViewport');
+    const list=viewport?.querySelector('.word-list');
+    if (!viewport || !list || !selectedRow.isConnected) return;
+    // 最終行も上端へ寄せられるよう、リスト末尾の余白を動的に確保。
+    const lastRow=list.querySelector('.word-row:last-of-type');
+    list.style.paddingBottom = `${Math.max(0, viewport.clientHeight - (lastRow?.offsetHeight || 0) - 10)}px`;
+    const paddingTop=parseFloat(getComputedStyle(viewport).paddingTop) || 0;
+    const scrollTo=viewport.scrollTop + selectedRow.getBoundingClientRect().top -
+      viewport.getBoundingClientRect().top - paddingTop;
+    viewport.scrollTo({top:Math.max(0,scrollTo), behavior:'smooth'});
+  });
 }
 function testEntry() {return state.testEntries[state.testIndex];}
 function renderTest() {
@@ -231,9 +273,10 @@ function renderTest() {
       <div class="test-top"><div class="test-word">${esc(entry.word)}</div>
         ${revealed?`<div class="test-meaning">${esc(entry.translation)}</div>`:''}
       </div>
-      <div class="test-bottom">${revealed?`<div class="test-bottom-inner"><p class="test-example">${esc(entry.example)}</p><p class="test-ja">${esc(entry.exampleJa)}</p></div>`:''}</div>
+      <div class="test-bottom">${revealed?`<div class="test-bottom-inner"><p class="test-example">${formatExample(entry.example, entry.highlight)}</p><p class="test-ja">${esc(entry.exampleJa)}</p></div>`:''}</div>
     </button>
     <div class="tap-indicator" aria-hidden="true">${svg.hand}</div>
+    <button type="button" class="test-prev" data-action="prev-test" aria-label="前の単語に戻る" ${state.testIndex===0?'disabled':''}>${svg.back}<span>前へ</span></button>
     ${revealed?starButton(entry,'test-star'):''}
   </main>`);
 }
@@ -315,6 +358,10 @@ app.addEventListener('click',async event=>{
       else state.testFinished=true;
       renderTest();return;
     }
+    case 'prev-test': {
+      if (state.testIndex > 0) {state.testIndex--;state.testRevealed=false;renderTest();}
+      return;
+    }
     case 'restart-test': state.testIndex=0;state.testRevealed=false;state.testFinished=false;renderTest();return;
     case 'return-list': state.view='list';renderList();return;
     case 'import-csv': fileInput.click();return;
@@ -373,3 +420,13 @@ async function boot() {
   }
 }
 boot();
+// 対応ブラウザではPWAの画面を縦に固定。iOS Safari等の非対応環境はCSSで補完。
+async function requestPortrait() {
+  if (!(window.matchMedia('(display-mode: standalone)').matches || navigator.standalone)) return;
+  if (screen.orientation && typeof screen.orientation.lock === 'function') {
+    try { await screen.orientation.lock('portrait-primary'); }
+    catch (_) { /* iOSなどで非対応の場合も学習機能を妨げない */ }
+  }
+}
+window.addEventListener('pageshow', requestPortrait);
+

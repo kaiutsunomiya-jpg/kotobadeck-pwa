@@ -1,4 +1,4 @@
-const CACHE='tantango-pwa-v3';
+const CACHE='tantango-pwa-v4';
 const FILES=[
   './','./index.html','./app.js','./styles.css','./manifest.webmanifest',
   './icons/icon-192.png','./icons/icon-512.png','./icons/apple-touch-icon.png',
