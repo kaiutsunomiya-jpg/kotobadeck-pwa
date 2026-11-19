@@ -1,14 +1,18 @@
 {
-  "version": 1,
+  "version": 2,
   "files": [
     {
-      "name": "瞬間英作文100_セット1.csv",
-      "mode": "composition",
+      "name": "第47回TOPIKⅡ_上級韓国語100単語(1).csv",
+      "path": "Vocabulary/第47回TOPIKⅡ_上級韓国語100単語(1).csv",
+      "folder": "Vocabulary",
+      "mode": "vocabulary",
       "count": 100
     },
     {
-      "name": "第47回TOPIKⅡ_上級韓国語100単語(1).csv",
-      "mode": "vocabulary",
+      "name": "瞬間英作文100_セット1.csv",
+      "path": "Flash/瞬間英作文100_セット1.csv",
+      "folder": "Flash",
+      "mode": "composition",
       "count": 100
     }
   ]

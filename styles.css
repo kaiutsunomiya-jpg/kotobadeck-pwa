@@ -212,3 +212,12 @@ button:focus-visible { outline: 3px solid #67a8a2; outline-offset: 2px; }
     user-select: none;
   }
 }
+
+/* v9: 学習モード選択 → 各フォルダのCSV一覧 */
+.category-list { margin-top: 5px; }
+.category-deck { min-height: 98px; border-radius: 19px; padding: 19px 17px; }
+.category-deck .deck-icon { width: 54px; height: 54px; border-radius: 15px; }
+.category-deck .deck-icon svg { width: 26px; height: 26px; }
+.category-deck .deck-title { font-size: 19px; }
+.category-page { padding-top: 34px; }
+.category-heading { margin: 2px 4px 24px; font-size: clamp(22px,6vw,28px); font-weight: 880; }

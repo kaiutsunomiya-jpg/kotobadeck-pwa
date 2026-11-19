@@ -9,7 +9,7 @@ const DB_VERSION = 2; // 変更しない：旧アプリのIndexedDBをそのま�
 
 const app = document.getElementById('app');
 const state = {
-  view: 'menu', sets: [], selectedSetId: null, selectedEntryKey: null,
+  view: 'menu', sets: [], selectedCategory: null, selectedSetId: null, selectedEntryKey: null,
   shuffled: false, reviewOnly: false, order: [],
   testEntries: [], testIndex: 0, testRevealed: false, testFinished: false,
   starred: new Set(), startupError: ''
@@ -179,16 +179,40 @@ function card(set) {
   <span class="deck-content"><span class="deck-title">${esc(set.title)}</span><span class="deck-count" style="display:block">${set.entries.length}${set.mode==='composition'?'文':'語'} ・ ${set.mode==='composition'?'瞬間作文':'単語学習'}</span></span>
   <span class="deck-next">${svg.next}</span></button>`;
 }
+// ホームではCSV一覧ではなく、学習モードを最初に選択する。
+const CATEGORIES = {
+  Vocabulary: {title:'単語学習', icon:svg.book, unit:'語'},
+  Flash: {title:'瞬間作文', icon:svg.bolt, unit:'文'}
+};
 function renderMenu() {
-  const bundled = state.sets;
   app.innerHTML = `<main class="menu scrollable"><div class="menu-content">
     <div class="brand-row"><div class="brand">たんたんご！</div>
       <img class="brand-photo" src="./icons/apple-touch-icon.png" alt="モルモットのアプリアイコン" width="68" height="68"></div>
     <div class="slogan">淡々と単語をGO！</div>
-    <h2 class="section-title">単語セット</h2>
-    <div class="deck-list">${bundled.map(card).join('')}${!bundled.length ? '<div class="empty">単語セットがありません</div>' : ''}</div>
+    <h2 class="section-title">学習モード</h2>
+    <div class="deck-list category-list">
+      ${Object.entries(CATEGORIES).map(([key,category]) => {
+        const decks=state.sets.filter(set => set.folder === key);
+        const total=decks.reduce((sum,set)=>sum+set.entries.length,0);
+        return `<button type="button" class="deck category-deck" data-action="open-category" data-category="${key}">
+          <span class="deck-icon">${category.icon}</span>
+          <span class="deck-content"><span class="deck-title">${category.title}</span>
+            <span class="deck-count" style="display:block">${decks.length}セット ・ ${total}${category.unit}</span></span>
+          <span class="deck-next">${svg.next}</span></button>`;
+      }).join('')}
+    </div>
     ${state.startupError ? `<p class="load-error">${esc(state.startupError)}</p>` : ''}
   </div></main>`;
+}
+function renderCategory() {
+  const category=CATEGORIES[state.selectedCategory];
+  if (!category) { state.view='menu'; renderMenu(); return; }
+  const decks=state.sets.filter(set => set.folder === state.selectedCategory);
+  app.innerHTML = bar(back('go-home','ホーム'),`<span class="bar-title">${category.title}</span>`,'') +
+    `<main class="menu category-page scrollable"><div class="menu-content">
+       <h1 class="category-heading">${category.title}</h1>
+       <div class="deck-list">${decks.map(card).join('') || '<div class="empty">単語セットがありません</div>'}</div>
+    </div></main>`;
 }
 function starButton(entry,extraClass='') {
   const selected=isStarred(entry);
@@ -196,12 +220,12 @@ function starButton(entry,extraClass='') {
 }
 function renderList(scrollTop = 0) {
   const set = currentSet();
-  if (!set) { state.view = 'menu'; renderMenu(); return; }
+  if (!set) { state.view = 'category'; renderCategory(); return; }
   const composition = set.mode === 'composition';
   const entries = orderedEntries();
   const reviewButton = `<button type="button" class="button-icon${state.reviewOnly?' active-review':''}" data-action="toggle-review" aria-pressed="${state.reviewOnly}" aria-label="${state.reviewOnly?'全項目を表示':'要復習のみ表示'}" title="要復習">${svg.star}</button>`;
   const shuffleButton = `<button type="button" class="button-icon${state.shuffled?' active-shuffle':''}" data-action="toggle-shuffle" aria-pressed="${state.shuffled}" aria-label="${state.shuffled?'CSV順に戻す':'ランダム順にする'}" title="並び替え">${svg.shuffle}</button>`;
-  app.innerHTML = bar(back('go-menu'), `<button type="button" class="button-test" data-action="start-test" ${entries.length ? '' : 'disabled'}>${svg.bolt}テスト</button>`, reviewButton+shuffleButton)+
+  app.innerHTML = bar(back('go-category','セット'), `<button type="button" class="button-test" data-action="start-test" ${entries.length ? '' : 'disabled'}>${svg.bolt}テスト</button>`, reviewButton+shuffleButton)+
     `<section class="study-head"><h1 class="study-name">${esc(set.title)}</h1><div class="study-sub"><b>${entries.length}${composition ? '文' : '語'}</b>${state.reviewOnly ? ' ・ ⭐復習' : ' ・ '+(state.shuffled ? 'ランダム順' : 'CSV順')}</div></section>
     <div class="column-head${composition?' composition-columns':''}"><span></span><span>${composition?'日本語例文':'単語'}</span><span>${composition?'訳文':'日本語訳'}</span></div>
     <main class="words-scroll scrollable" id="wordsViewport"><div class="word-list${composition?' composition-list':''}">
@@ -290,6 +314,7 @@ function renderTest() {
 }
 function render(scrollTop=0) {
   if (state.view==='menu') renderMenu();
+  if (state.view==='category') renderCategory();
   if (state.view==='list') renderList(scrollTop);
   if (state.view==='test') renderTest();
 }
@@ -329,16 +354,24 @@ app.addEventListener('click',async event=>{
   const action=button.dataset.action;
   try {
     switch(action) {
+    case 'open-category': {
+      if (!CATEGORIES[button.dataset.category]) return;
+      state.selectedCategory=button.dataset.category;
+      state.view='category';renderCategory();return;
+    }
+    case 'go-home': state.view='menu';state.selectedCategory=null;renderMenu();return;
+    case 'go-category': state.view='category';state.selectedEntryKey=null;renderCategory();return;
     case 'open-set': {
       const set=state.sets.find(x=>x.id===button.dataset.id);
       if (!set) return;
+      state.selectedCategory=set.folder;
       state.selectedSetId=set.id;
       state.order=set.entries.map((_,i)=>i);
       state.selectedEntryKey=null;
       state.shuffled=false; state.reviewOnly=false;
       state.view='list'; render(); return;
     }
-    case 'go-menu': state.view='menu';state.selectedEntryKey=null;render();return;
+    case 'go-menu': state.view='category';state.selectedEntryKey=null;render();return;
     case 'show-example': showEntry(button.dataset.entrykey);return;
     case 'close-panel': showEntry(null);return;
     case 'toggle-shuffle': {
@@ -376,35 +409,69 @@ app.addEventListener('click',async event=>{
   } catch(error) {toast(error.message||'操作できませんでした');}
 });
 async function boot() {
-  const bundled = [];
+  const bundled=[];
   try {
-    // GitHub Actionsはアップロードの都度このJSONを再生成する（手動リスト編集は不要）。
-    const catalogResponse = await fetch(CATALOG_URL, {cache:'no-store'});
+    const catalogResponse=await fetch(CATALOG_URL,{cache:'no-store'});
     if (!catalogResponse.ok) throw new Error(`一覧ファイル HTTP ${catalogResponse.status}`);
-    const catalog = await catalogResponse.json();
+    const catalog=await catalogResponse.json();
     if (!Array.isArray(catalog.files)) throw new Error('CSV一覧ファイルの形式が違います。');
     for (const item of catalog.files) {
-      const fileName = typeof item === 'string' ? item : item.name;
-      if (!fileName || fileName.includes('/') || fileName.includes('\\') || !/\.csv$/i.test(fileName)) continue;
+      if (!item || typeof item !== 'object') continue;
+      const path=item.path;
+      // GitHub Actionsで生成された Flash/Vocabulary の直下だけを許可する。
+      if (typeof path !== 'string' || !/^(Flash|Vocabulary)\/[^/\\]+\.csv$/i.test(path)) continue;
+      const [folder,fileName]=path.split('/');
+      if (!CATEGORIES[folder]) continue;
       try {
-        const response = await fetch(`./VocabularySets/${encodeURIComponent(fileName)}`);
+        const encodedPath=path.split('/').map(encodeURIComponent).join('/');
+        const response=await fetch(`./VocabularySets/${encodedPath}`);
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const parsed = parseCSV(await response.text());
-        bundled.push({id:`bundled:${fileName}`, kind:'bundled', fileName, title:basename(fileName), mode:parsed.mode, entries:parsed.entries});
-      } catch (error) {state.startupError+=`${fileName}：${error.message} `;}
+        const parsed=parseCSV(await response.text());
+        const expected=folder==='Flash' ? 'composition' : 'vocabulary';
+        if (parsed.mode!==expected) throw new Error(`CSVの形式が${folder}フォルダに合っていません。`);
+        bundled.push({id:`bundled:${path}`,legacyId:`bundled:${fileName}`,folder,
+          kind:'bundled',fileName,path,title:basename(fileName),mode:parsed.mode,entries:parsed.entries});
+      } catch(error) {state.startupError+=`${fileName}：${error.message} `;}
     }
-  } catch (error) {state.startupError=`CSVの一覧を読み込めません：${error.message}。GitHub Actionsの公開設定を確認してください。`;}
+  } catch(error) {state.startupError=`CSVの一覧を読み込めません：${error.message}。GitHub Actionsの公開設定を確認してください。`;}
   try {
-    // 復習⭐の保存元は以前と共通。旧ローカルCSVの表示・追加は行わない。
-    const stars = await dbAll(REVIEW_STORE);
-    state.starred = new Set(stars.map(s=>s.id));
-  } catch (_) { state.startupError+='⭐の保存を利用できません。'; }
-  state.sets = bundled;
+    const stars=await dbAll(REVIEW_STORE);
+    state.starred=new Set(stars.map(s=>s.id));
+    // v8以前のキーは bundled:ファイル名。フォルダ移行後も⭐を継承・永続化する。
+    const migrations=[];
+    for (const set of bundled) {
+      for (const entry of set.entries) {
+        const oldId=reviewId(set.legacyId,entry.key);
+        const newId=reviewId(set.id,entry.key);
+        if (state.starred.has(oldId) && !state.starred.has(newId)) {
+          state.starred.add(newId);
+          migrations.push({id:newId,oldId,setId:set.id,entryKey:entry.key});
+        }
+      }
+    }
+    if (migrations.length) await saveMigratedStars(migrations);
+  } catch(error) {state.startupError+='⭐の保存を利用できません。';}
+  state.sets=bundled;
   renderMenu();
   if ('serviceWorker' in navigator && (location.protocol==='https:' || location.hostname==='localhost'||location.hostname==='127.0.0.1')) {
     navigator.serviceWorker.register('./sw.js').catch(error=>console.warn('Offline cache:',error));
   }
 }
+// 既存の保存形式・DBバージョンは変えず、1回の書き込みで移行する。
+async function saveMigratedStars(records) {
+  const db=await openDB();
+  return new Promise((resolve,reject)=>{
+    const tx=db.transaction(REVIEW_STORE,'readwrite');
+    const store=tx.objectStore(REVIEW_STORE);
+    // 移行元の旧キーは消す。残すと⭐解除後に再び復活してしまう。
+    records.forEach(({oldId,...record})=>store.put(record));
+    new Set(records.map(record=>record.oldId)).forEach(oldId=>store.delete(oldId));
+    tx.oncomplete=()=>{db.close();resolve();};
+    tx.onerror=()=>{db.close();reject(tx.error);};
+    tx.onabort=()=>{db.close();reject(tx.error);};
+  });
+}
+
 boot();
 // 対応ブラウザではPWAの画面を縦に固定。iOS Safari等の非対応環境はCSSで補完。
 async function requestPortrait() {

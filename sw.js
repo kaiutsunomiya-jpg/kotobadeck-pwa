@@ -1,7 +1,7 @@
-/* v8: GitHub Actionsが生成するindex.jsonにより同梱CSVを動的にキャッシュします。 */
-const CACHE = 'tantango-pwa-v8';
+/* v9: GitHub Actionsが生成するindex.jsonにより同梱CSVを動的にキャッシュします。 */
+const CACHE = 'tantango-pwa-v9';
 const CORE = [
-  './', './index.html', './app.js?v=8', './styles.css?v=8',
+  './', './index.html', './app.js?v=9', './styles.css?v=9',
   './manifest.webmanifest', './icons/icon-192.png',
   './icons/icon-512.png', './icons/apple-touch-icon.png',
   './VocabularySets/index.json'
@@ -13,9 +13,10 @@ self.addEventListener('install', event => {
     // オフライン初回起動でも全セットを使えるよう、CSVを事前にキャッシュ。
     try {
       const index = await (await cache.match('./VocabularySets/index.json')).json();
-      const names = (index.files || []).map(item => typeof item === 'string' ? item : item.name)
-        .filter(name => typeof name === 'string' && /^[^/\\]+\.csv$/i.test(name));
-      await Promise.allSettled(names.map(name => cache.add(`./VocabularySets/${encodeURIComponent(name)}`)));
+      const paths = (index.files || []).map(item => item && typeof item === 'object' ? item.path : '')
+        .filter(path => typeof path === 'string' && /^(Flash|Vocabulary)\/[^/\\]+\.csv$/i.test(path));
+      await Promise.allSettled(paths.map(path =>
+        cache.add(`./VocabularySets/${path.split('/').map(encodeURIComponent).join('/')}`)));
     } catch (error) {
       console.warn('CSV pre-cache failed:', error);
     }
