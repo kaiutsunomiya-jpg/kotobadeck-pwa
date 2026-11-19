@@ -159,14 +159,20 @@ button:focus-visible { outline: 3px solid #67a8a2; outline-offset: 2px; }
 /* v7: 瞬間作文テストのみ、中央の境界を挟んで原文と英文を近接させる。
    日本語は上半分の最下部、英文は下半分の最上部に固定する。
    解答前後で上半分の高さ・日本語の位置は変わらない。 */
+/* v8: 瞬間作文テストは日本語と訳文の開始位置を同じ左端に揃える。
+   上半分の下揃え・下半分の上揃え・フォントサイズはv7を維持。 */
 .composition-test .test-top {
   flex: 0 0 45%;
   height: 45%;
   padding: 12px 22px 8px;
+  align-items: stretch;
   justify-content: flex-start;
 }
 .composition-test .test-word {
-  margin-top: auto;
+  width: 100%;
+  max-width: 650px;
+  margin: auto auto 0;
+  text-align: left;
   font-size: clamp(24px, 6.5vw, 37px);
   line-height: 1.5;
   letter-spacing: 0;

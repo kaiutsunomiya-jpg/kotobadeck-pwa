@@ -1,7 +1,7 @@
-/* v7: GitHub Actionsが生成するindex.jsonにより同梱CSVを動的にキャッシュします。 */
-const CACHE = 'tantango-pwa-v7';
+/* v8: GitHub Actionsが生成するindex.jsonにより同梱CSVを動的にキャッシュします。 */
+const CACHE = 'tantango-pwa-v8';
 const CORE = [
-  './', './index.html', './app.js?v=7', './styles.css?v=7',
+  './', './index.html', './app.js?v=8', './styles.css?v=8',
   './manifest.webmanifest', './icons/icon-192.png',
   './icons/icon-512.png', './icons/apple-touch-icon.png',
   './VocabularySets/index.json'
