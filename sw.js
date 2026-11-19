@@ -1,34 +1,50 @@
-const CACHE='tantango-pwa-v5';
-const FILES=[
-  './','./index.html','./app.js?v=5','./styles.css?v=5','./manifest.webmanifest',
-  './icons/icon-192.png','./icons/icon-512.png','./icons/apple-touch-icon.png',
-  './VocabularySets/%E7%AC%AC47%E5%9B%9ETOPIK%E2%85%A1_%E4%B8%8A%E7%B4%9A%E9%9F%93%E5%9B%BD%E8%AA%9E100%E5%8D%98%E8%AA%9E(1).csv?v=5'
+/* v6: GitHub Actionsが生成するindex.jsonにより同梱CSVを動的にキャッシュします。 */
+const CACHE = 'tantango-pwa-v6';
+const CORE = [
+  './', './index.html', './app.js?v=6', './styles.css?v=6',
+  './manifest.webmanifest', './icons/icon-192.png',
+  './icons/icon-512.png', './icons/apple-touch-icon.png',
+  './VocabularySets/index.json'
 ];
-self.addEventListener('install',event=>{
-  event.waitUntil(caches.open(CACHE).then(cache=>cache.addAll(FILES)).then(()=>self.skipWaiting()));
+self.addEventListener('install', event => {
+  event.waitUntil((async () => {
+    const cache = await caches.open(CACHE);
+    await cache.addAll(CORE);
+    // オフライン初回起動でも全セットを使えるよう、CSVを事前にキャッシュ。
+    try {
+      const index = await (await cache.match('./VocabularySets/index.json')).json();
+      const names = (index.files || []).map(item => typeof item === 'string' ? item : item.name)
+        .filter(name => typeof name === 'string' && /^[^/\\]+\.csv$/i.test(name));
+      await Promise.allSettled(names.map(name => cache.add(`./VocabularySets/${encodeURIComponent(name)}`)));
+    } catch (error) {
+      console.warn('CSV pre-cache failed:', error);
+    }
+    await self.skipWaiting();
+  })());
 });
-self.addEventListener('activate',event=>{
+self.addEventListener('activate', event => {
   event.waitUntil(Promise.all([
-    caches.keys().then(keys=>Promise.all(keys.filter(key=>key.startsWith('tantango-pwa-')&&key!==CACHE).map(key=>caches.delete(key)))),
-    self.clients.claim()
+    caches.keys().then(keys => Promise.all(keys.filter(key =>
+      (key.startsWith('tantango-pwa-') || key.startsWith('kotobadeck-pwa-')) && key !== CACHE
+    ).map(key => caches.delete(key)))),
+    self.clients.claim(),
   ]));
 });
-self.addEventListener('fetch',event=>{
-  const request=event.request;
-  if(request.method!=='GET') return;
-  const url=new URL(request.url);
-  if(url.origin!==self.location.origin) return;
-  event.respondWith((async()=>{
-    const cache=await caches.open(CACHE);
-    // network first: 更新があれば取り込む。オフライン時は既存キャッシュを使う。
+self.addEventListener('fetch', event => {
+  const request = event.request;
+  if (request.method !== 'GET') return;
+  const url = new URL(request.url);
+  if (url.origin !== self.location.origin) return;
+  event.respondWith((async () => {
+    const cache = await caches.open(CACHE);
     try {
-      const response=await fetch(request);
-      if (response.ok) cache.put(request,response.clone()).catch(()=>{});
+      const response = await fetch(request);
+      if (response.ok) cache.put(request, response.clone()).catch(() => {});
       return response;
-    } catch(_) {
-      const hit=await cache.match(request);
-      if(hit) return hit;
-      if(request.mode==='navigate') return (await cache.match('./index.html')) || Response.error();
+    } catch (error) {
+      const cached = await cache.match(request);
+      if (cached) return cached;
+      if (request.mode === 'navigate') return (await cache.match('./index.html')) || Response.error();
       return Response.error();
     }
   })());

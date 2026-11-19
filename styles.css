@@ -146,3 +146,28 @@ button:focus-visible { outline: 3px solid #67a8a2; outline-offset: 2px; }
     overflow: hidden;
   }
 }
+
+/* v6 — 瞬間作文モード：文全体が読みやすいよう、日本語→訳文の縦配置にする */
+.composition-columns { grid-template-columns: 46px minmax(0,1fr) minmax(0,1fr); }
+.composition-row .word-select { flex-direction: column; gap: 5px; align-items: stretch; padding-top: 12px; padding-bottom: 12px; }
+.composition-row .word-text { flex: none; width: 100%; font-size: 15px; line-height: 1.6; font-weight: 770; }
+.composition-row .word-translation { flex: none; width: 100%; font-size: 13px; color: #75857f; line-height: 1.6; text-align: left; }
+.composition-panel .panel-upper { display:flex; flex-direction:column; justify-content:center; }
+.composition-panel .panel-term { font-size: clamp(19px,5.5vw,27px); line-height:1.65; }
+.composition-panel .panel-lower { display:flex; align-items:flex-start; }
+.composition-answer { font-size: clamp(20px,5.8vw,27px); font-weight:750; line-height:1.7; color:#254d45; margin:0; }
+.composition-test .test-top { flex-basis: 45%; height: 45%; }
+.composition-test .test-word { font-size:clamp(21px,6vw,34px); line-height:1.6; letter-spacing:0; }
+.composition-test-answer { font-size:clamp(22px,6vw,30px); font-weight:780; line-height:1.8; margin:0; color:var(--teal); }
+.load-error { color:#985b50; font-size:13px; line-height:1.6; }
+/* 英語・韓国語は単語を途中で折り返さない。文の折返しは元の空白位置のみ。
+   句読点や空白のない長いトークンは、領域内で横スクロール可能とする。 */
+.no-break-token { display:inline-block; white-space:nowrap; word-break:normal; overflow-wrap:normal; }
+.example-source, .example-translation, .test-example, .test-ja,
+.composition-answer, .composition-test-answer, .composition-row .word-translation {
+  word-break:keep-all;
+  overflow-wrap:normal;
+  white-space:pre-wrap;
+}
+.example-source, .example-translation, .test-example, .test-ja,
+.composition-answer, .composition-test-answer { max-width:100%; overflow-x:auto; }

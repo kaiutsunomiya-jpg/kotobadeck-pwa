@@ -1,15 +1,13 @@
 'use strict';
 
-// v5: 5列目に全100語の強調箇所が入力された同梱CSVを読み込みます。
-// 公開ページに最初から表示するCSV。端末内だけのCSVは「CSVを追加」から読み込みます。
-const BUNDLED_CSV_FILES = ['第47回TOPIKⅡ_上級韓国語100単語(1).csv'];
+// GitHub ActionsでVocabularySets内のCSVから自動生成される一覧を読み込みます。
+const CATALOG_URL = './VocabularySets/index.json';
 const DB_NAME = 'kotobadeck-local-sets'; // 旧版と同じDB名にし、追加済みCSVを引き継ぐ
-const DECK_STORE = 'vocabulary-sets';
+const DECK_STORE = 'vocabulary-sets'; // 古いアプリのDB構造は変更しない（旧データは表示しない）
 const REVIEW_STORE = 'review-flags';
 const DB_VERSION = 2; // 変更しない：旧アプリのIndexedDBをそのまま使う
 
 const app = document.getElementById('app');
-const fileInput = document.getElementById('csvFileInput');
 const state = {
   view: 'menu', sets: [], selectedSetId: null, selectedEntryKey: null,
   shuffled: false, reviewOnly: false, order: [],
@@ -29,18 +27,34 @@ const svg = {
 
 function esc(text) { return String(text ?? '').replace(/[&<>"']/g, character => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[character])); }
 function basename(fileName) { return String(fileName).replace(/\.csv$/i, ''); }
-// CSV 5列目の文字列が例文と完全一致する箇所を、最初の1件だけ強調する。
-// すべてHTMLエスケープし、CSVからHTMLやスクリプトを実行させない。
-function formatExample(example, highlight) {
-  const source = String(example ?? '');
+// 単語・文節を途中で折り返さないHTML。ハイライトが文節途中にある場合も
+// スペース区切りのトークン全体をnowrapにして分断を防ぐ。
+// 日本語のように空白を含まない長文は通常の日本語組版で自然改行する。
+function formatProtected(text, highlight = '', language = 'auto') {
+  const source = String(text ?? '');
   const fragment = String(highlight ?? '');
-  if (!fragment) return esc(source);
-  const at = source.indexOf(fragment);
-  if (at < 0) return esc(source);
-  return esc(source.slice(0, at)) +
-    `<strong class="example-highlight">${esc(fragment)}</strong>` +
-    esc(source.slice(at + fragment.length));
+  const begin = fragment ? source.indexOf(fragment) : -1;
+  const finish = begin < 0 ? -1 : begin + fragment.length;
+  const treatAsJapanese = language === 'ja' ||
+    (language === 'auto' && /[ぁ-んァ-ヶ]/.test(source) && !/[가-힣]/.test(source));
+  const writePart = (str, offset) => {
+    if (begin < 0 || offset >= finish || offset + str.length <= begin) return esc(str);
+    const before = Math.max(0, begin - offset);
+    const after = Math.min(str.length, finish - offset);
+    return esc(str.slice(0, before)) +
+      `<strong class="example-highlight">${esc(str.slice(before, after))}</strong>` +
+      esc(str.slice(after));
+  };
+  if (treatAsJapanese) return writePart(source, 0);
+  const tokens = source.match(/\s+|[^\s]+/g) || [];
+  let offset = 0;
+  return tokens.map(token => {
+    const html = writePart(token, offset);
+    offset += token.length;
+    return /^\s+$/.test(token) ? html : `<span class="no-break-token">${html}</span>`;
+  }).join('');
 }
+function formatExample(example, highlight) { return formatProtected(example, highlight, 'auto'); }
 
 function currentSet() { return state.sets.find(s => s.id === state.selectedSetId) || null; }
 function reviewId(setId, entryKey) { return JSON.stringify([setId, entryKey]); }
@@ -65,47 +79,44 @@ function parseCSV(contents) {
   const text = String(contents).replace(/^\uFEFF/, '');
   const rows = [];
   let row = [], field = '', quoted = false;
-  for (let index=0; index<text.length; index++) {
+  for (let index = 0; index < text.length; index++) {
     const ch = text[index];
     if (quoted) {
-      if (ch === '"' && text[index+1] === '"') { field += '"'; index++; }
+      if (ch === '"' && text[index + 1] === '"') { field += '"'; index++; }
       else if (ch === '"') quoted = false;
       else field += ch;
     } else if (ch === '"' && !field.length) quoted = true;
-    else if (ch === ',') { row.push(field); field=''; }
+    else if (ch === ',') { row.push(field); field = ''; }
     else if (ch === '\r' || ch === '\n') {
-      if (ch === '\r' && text[index+1] === '\n') index++;
-      row.push(field); rows.push(row); row=[]; field='';
+      if (ch === '\r' && text[index + 1] === '\n') index++;
+      row.push(field); rows.push(row); row = []; field = '';
     } else field += ch;
   }
-  if (quoted) throw new Error('CSVのダブルクォートが閉じられていません。');
+  if (quoted) throw new Error('CSVの引用符が閉じていません。');
   if (field || row.length) { row.push(field); rows.push(row); }
-  const nonempty = rows.filter(row => row.some(cell => cell.trim()));
-  const expected = ['単語','日本語訳','例文','例文の日本語訳'];
-  const header = nonempty[0]?.map(field => field.trim()) || [];
-  // 従来の4列もそのまま読み込み、新しい5列目「強調箇所」を任意で使用できる。
-  const validHeader = (header.length === 4 || header.length === 5) &&
-    expected.every((label, index) => header[index] === label) &&
+  const nonempty = rows.filter(fields => fields.some(value => value.trim()));
+  const header = nonempty[0]?.map(value => value.trim()) || [];
+  const isComposition = header.length === 2 && header[0] === '日本語例文' && header[1] === '訳文';
+  const isVocabulary = (header.length === 5 || header.length === 4) &&
+    ['単語', '日本語訳', '例文', '例文の日本語訳'].every((name, i) => header[i] === name) &&
     (header.length === 4 || header[4] === '強調箇所');
-  if (!validHeader) {
-    throw new Error('CSVの見出しは「単語,日本語訳,例文,例文の日本語訳,強調箇所」（5列目は省略可）にしてください。');
-  }
+  if (!isComposition && !isVocabulary) throw new Error('CSVのヘッダーは「日本語例文,訳文」または「単語,日本語訳,例文,例文の日本語訳,強調箇所」にしてください。');
   const occur = new Map();
-  const entries = nonempty.slice(1).map((fields,index) => {
-    // 5列ヘッダーの場合、空の5列目が末尾カンマで省略されていても空欄扱い。
-    if (fields.length !== header.length && !(header.length === 5 && fields.length === 4)) {
-      throw new Error(`${index+2}行目の列数が違います（${header.length}列にしてください）。`);
+  const entries = nonempty.slice(1).map((cells, index) => {
+    if (cells.length !== header.length && !(isVocabulary && header.length === 5 && cells.length === 4)) {
+      throw new Error(`${index + 2}行目の列数が違います（${header.length}列）。`);
     }
-    const [word,translation,example,exampleJa,highlight=''] = fields.map(x=>x.trim());
-    if (!word) throw new Error(`${index+2}行目の単語が空です。`);
-    const identity = JSON.stringify([word,translation]);
-    const occurrence = occur.get(identity)||0;
-    occur.set(identity,occurrence+1);
-    return {key: JSON.stringify([word,translation,occurrence]), word, translation, example, exampleJa, highlight};
+    const [word, translation, example = '', exampleJa = '', highlight = ''] = cells.map(value => value.trim());
+    if (!word) throw new Error(`${index + 2}行目が空です。`);
+    const identity = JSON.stringify([word, translation]);
+    const occurrence = occur.get(identity) || 0;
+    occur.set(identity, occurrence + 1);
+    return { key: JSON.stringify([word, translation, occurrence]), word, translation, example, exampleJa, highlight };
   });
-  if (!entries.length) throw new Error('単語がありません。');
-  return entries;
+  if (!entries.length) throw new Error('CSVにデータがありません。');
+  return {mode: isComposition ? 'composition' : 'vocabulary', entries};
 }
+
 // 旧PWA版のローカルCSVにも対応：index IDしかないデータを、単語ベースのキーに変換する。
 function normalizeEntries(entries) {
   const occurrence = new Map();
@@ -158,11 +169,6 @@ async function saveStar(entry,newValue) {
   else await dbChange(REVIEW_STORE,'delete',id);
   if (newValue) state.starred.add(id); else state.starred.delete(id);
 }
-async function clearDeckStars(setId) {
-  const ids=[...state.starred].filter(key=>{try{return JSON.parse(key)[0]===setId;}catch(_){return false;}});
-  for (const id of ids) {await dbChange(REVIEW_STORE,'delete',id); state.starred.delete(id);}
-}
-
 function bar(left,middle,right) {
   return `<header class="bar"><div class="bar-left">${left||''}</div><div class="bar-middle">${middle||''}</div><div class="bar-right">${right||''}</div></header>`;
 }
@@ -170,59 +176,59 @@ function back(action,caption='戻る') { return `<button type="button" class="bu
 function card(set) {
   return `<button type="button" class="deck" data-action="open-set" data-id="${esc(set.id)}">
   <span class="deck-icon">${svg.book}</span>
-  <span class="deck-content"><span class="deck-title">${esc(set.title)}</span><span class="deck-count" style="display:block">${set.entries.length}語</span></span>
+  <span class="deck-content"><span class="deck-title">${esc(set.title)}</span><span class="deck-count" style="display:block">${set.entries.length}${set.mode==='composition'?'文':'語'} ・ ${set.mode==='composition'?'瞬間作文':'単語学習'}</span></span>
   <span class="deck-next">${svg.next}</span></button>`;
 }
 function renderMenu() {
-  const bundled=state.sets.filter(set=>set.kind==='bundled');
-  const local=state.sets.filter(set=>set.kind==='local');
-  app.innerHTML=`<main class="menu scrollable"><div class="menu-content">
+  const bundled = state.sets;
+  app.innerHTML = `<main class="menu scrollable"><div class="menu-content">
     <div class="brand-row"><div class="brand">たんたんご！</div>
       <img class="brand-photo" src="./icons/apple-touch-icon.png" alt="モルモットのアプリアイコン" width="68" height="68"></div>
     <div class="slogan">淡々と単語をGO！</div>
     <h2 class="section-title">単語セット</h2>
-    <div class="deck-list">${bundled.map(card).join('')}${!bundled.length && !local.length ? '<div class="empty">単語セットがありません</div>':''}</div>
-    ${local.length?`<div class="local-group-label">追加した単語セット</div><div class="deck-list">${local.map(set=>`<div class="local-deck-row">${card(set)}<button type="button" class="remove-deck" data-action="delete-set" data-id="${esc(set.id)}" aria-label="${esc(set.title)}を削除">削除</button></div>`).join('')}</div>`:''}
-    <div class="import-box"><button type="button" class="main-button" data-action="import-csv">${svg.plus}CSVを追加</button></div>
-    ${state.startupError?`<p style="color:#985b50;font-size:13px">${esc(state.startupError)}</p>`:''}
-    </div></main>`;
+    <div class="deck-list">${bundled.map(card).join('')}${!bundled.length ? '<div class="empty">単語セットがありません</div>' : ''}</div>
+    ${state.startupError ? `<p class="load-error">${esc(state.startupError)}</p>` : ''}
+  </div></main>`;
 }
 function starButton(entry,extraClass='') {
   const selected=isStarred(entry);
   return `<button type="button" class="star-button ${extraClass}${selected?' is-starred':''}" data-action="toggle-star" data-entrykey="${esc(entry.key)}" aria-label="${selected?'復習から外す':'要復習に登録'}：${esc(entry.word)}" aria-pressed="${selected}">${svg.star}</button>`;
 }
-function renderList(scrollTop=0) {
-  const set=currentSet();
-  if (!set) {state.view='menu';renderMenu();return;}
-  const entries=orderedEntries();
-  const reviewButton=`<button type="button" class="button-icon${state.reviewOnly?' active-review':''}" data-action="toggle-review" aria-pressed="${state.reviewOnly}" aria-label="${state.reviewOnly?'全単語を表示':'要復習の単語のみ表示'}" title="要復習">${svg.star}</button>`;
-  const shuffleButton=`<button type="button" class="button-icon${state.shuffled?' active-shuffle':''}" data-action="toggle-shuffle" aria-pressed="${state.shuffled}" aria-label="${state.shuffled?'CSV順に戻す':'ランダム順にする'}" title="並び替え">${svg.shuffle}</button>`;
-  app.innerHTML=bar(back('go-menu'),`<button type="button" class="button-test" data-action="start-test" ${entries.length?'':'disabled'}>${svg.bolt}テスト</button>`,reviewButton+shuffleButton)+
-    `<section class="study-head"><h1 class="study-name">${esc(set.title)}</h1><div class="study-sub"><b>${entries.length}語</b>${state.reviewOnly?' ・ ⭐復習':' ・ '+(state.shuffled?'ランダム順':'CSV順')}</div></section>
-    <div class="column-head"><span></span><span>単語</span><span>日本語訳</span></div>
-    <main class="words-scroll scrollable" id="wordsViewport"><div class="word-list">
-    ${entries.length?entries.map(entry=>`<div class="word-row${state.selectedEntryKey===entry.key?' selected':''}">
+function renderList(scrollTop = 0) {
+  const set = currentSet();
+  if (!set) { state.view = 'menu'; renderMenu(); return; }
+  const composition = set.mode === 'composition';
+  const entries = orderedEntries();
+  const reviewButton = `<button type="button" class="button-icon${state.reviewOnly?' active-review':''}" data-action="toggle-review" aria-pressed="${state.reviewOnly}" aria-label="${state.reviewOnly?'全項目を表示':'要復習のみ表示'}" title="要復習">${svg.star}</button>`;
+  const shuffleButton = `<button type="button" class="button-icon${state.shuffled?' active-shuffle':''}" data-action="toggle-shuffle" aria-pressed="${state.shuffled}" aria-label="${state.shuffled?'CSV順に戻す':'ランダム順にする'}" title="並び替え">${svg.shuffle}</button>`;
+  app.innerHTML = bar(back('go-menu'), `<button type="button" class="button-test" data-action="start-test" ${entries.length ? '' : 'disabled'}>${svg.bolt}テスト</button>`, reviewButton+shuffleButton)+
+    `<section class="study-head"><h1 class="study-name">${esc(set.title)}</h1><div class="study-sub"><b>${entries.length}${composition ? '文' : '語'}</b>${state.reviewOnly ? ' ・ ⭐復習' : ' ・ '+(state.shuffled ? 'ランダム順' : 'CSV順')}</div></section>
+    <div class="column-head${composition?' composition-columns':''}"><span></span><span>${composition?'日本語例文':'単語'}</span><span>${composition?'訳文':'日本語訳'}</span></div>
+    <main class="words-scroll scrollable" id="wordsViewport"><div class="word-list${composition?' composition-list':''}">
+    ${entries.length ? entries.map(entry => `<div class="word-row${composition?' composition-row':''}${state.selectedEntryKey===entry.key?' selected':''}">
       ${starButton(entry)}
       <button type="button" class="word-select" data-action="show-example" data-entrykey="${esc(entry.key)}" aria-pressed="${state.selectedEntryKey===entry.key}">
-       <span class="word-text">${esc(entry.word)}</span><span class="word-translation">${esc(entry.translation)}</span></button></div>`).join(''):
-      '<div class="empty">⭐を付けた単語がありません</div>'}
+        <span class="word-text">${composition?formatProtected(entry.word,'','ja'):esc(entry.word)}</span><span class="word-translation">${composition?formatProtected(entry.translation,'','auto'):esc(entry.translation)}</span></button></div>`).join(''):
+      '<div class="empty">⭐を付けた項目がありません</div>'}
     </div></main>`;
   renderPanel();
-  const viewport=document.getElementById('wordsViewport');
-  if (viewport) viewport.scrollTop=scrollTop;
+  const viewport = document.getElementById('wordsViewport');
+  if (viewport) viewport.scrollTop = scrollTop;
 }
 function renderPanel() {
   document.getElementById('examplePanel')?.remove();
-  const viewport=document.getElementById('wordsViewport');
+  const viewport = document.getElementById('wordsViewport');
   if (!viewport) return;
-  const entry=currentSet()?.entries.find(e=>e.key===state.selectedEntryKey);
-  if (!entry || (state.reviewOnly&&!isStarred(entry))) {viewport.classList.remove('panel-open');return;}
+  const set = currentSet();
+  const entry = set?.entries.find(e => e.key === state.selectedEntryKey);
+  if (!entry || (state.reviewOnly && !isStarred(entry))) { viewport.classList.remove('panel-open'); return; }
   viewport.classList.add('panel-open');
-  app.insertAdjacentHTML('beforeend', `<aside class="example-panel" id="examplePanel" aria-label="単語と例文">
-    <div class="panel-upper"><div class="panel-head"><div class="panel-term">${esc(entry.word)}</div><button type="button" class="close-panel" data-action="close-panel" aria-label="閉じる">×</button></div>
-      <div class="panel-meaning">${esc(entry.translation)}</div></div>
-    <div class="panel-lower"><p class="example-source">${formatExample(entry.example, entry.highlight)}</p><p class="example-translation">${esc(entry.exampleJa)}</p></div>
-    </aside>`);
+  const composition = set.mode === 'composition';
+  app.insertAdjacentHTML('beforeend', `<aside class="example-panel${composition?' composition-panel':''}" id="examplePanel" aria-label="${composition?'瞬間作文の訳文':'単語と例文'}">
+    <div class="panel-upper"><div class="panel-head"><div class="panel-term">${composition?formatProtected(entry.word,'','ja'):esc(entry.word)}</div><button type="button" class="close-panel" data-action="close-panel" aria-label="閉じる">×</button></div>
+      ${composition?'':`<div class="panel-meaning">${esc(entry.translation)}</div>`}</div>
+    <div class="panel-lower">${composition ? `<p class="composition-answer">${formatProtected(entry.translation)}</p>` : `<p class="example-source">${formatExample(entry.example,entry.highlight)}</p><p class="example-translation">${formatProtected(entry.exampleJa,'','ja')}</p>`}</div>
+  </aside>`);
 }
 function showEntry(entryKey) {
   state.selectedEntryKey=entryKey;
@@ -255,26 +261,27 @@ function showEntry(entryKey) {
 }
 function testEntry() {return state.testEntries[state.testIndex];}
 function renderTest() {
-  const entries=state.testEntries;
-  if (!entries.length) { state.view='list';renderList();return; }
-  const completed=state.testFinished;
-  const count=Math.min(state.testIndex+1,entries.length);
+  const entries = state.testEntries;
+  if (!entries.length) { state.view='list'; renderList(); return; }
+  const composition = currentSet()?.mode === 'composition';
+  const completed = state.testFinished;
+  const count = Math.min(state.testIndex+1,entries.length);
   app.innerHTML=bar(back('return-list'),'<span class="bar-title">テスト</span>',`<span class="test-counter">${count}/${entries.length}</span>`)+
-   `<div class="test-progress"><div style="width:${100*(completed?1:state.testIndex/entries.length)}%"></div></div>`;
+    `<div class="test-progress"><div style="width:${100*(completed?1:state.testIndex/entries.length)}%"></div></div>`;
   if (completed) {
-    app.insertAdjacentHTML('beforeend',`<main class="done"><div class="done-mark">✓</div><div class="done-title">テスト完了！</div><div class="done-count">${entries.length}語</div>
+    app.insertAdjacentHTML('beforeend',`<main class="done"><div class="done-mark">✓</div><div class="done-title">テスト完了！</div><div class="done-count">${entries.length}${composition?'文':'語'}</div>
      <div class="done-actions"><button type="button" class="main-button" data-action="restart-test">もう一度</button><button type="button" class="light-button" data-action="return-list">一覧に戻る</button></div></main>`);
     return;
   }
-  const entry=testEntry();
-  const revealed=state.testRevealed;
-  // 単語の位置は表と裏で同じ。例文エリアのみ下半分に出す。
-  app.insertAdjacentHTML('beforeend',`<main class="test-stage">
-    <button type="button" class="test-tap${revealed?' is-answer':''}" data-action="advance-test" aria-label="${revealed?'次の単語へ':'解答を見る'}">
-      <div class="test-top"><div class="test-word">${esc(entry.word)}</div>
-        ${revealed?`<div class="test-meaning">${esc(entry.translation)}</div>`:''}
+  const entry = testEntry();
+  const revealed = state.testRevealed;
+  app.insertAdjacentHTML('beforeend',`<main class="test-stage${composition?' composition-test':''}">
+    <button type="button" class="test-tap${revealed?' is-answer':''}" data-action="advance-test" aria-label="${revealed?'次の問題へ':'解答を見る'}">
+      <div class="test-top"><div class="test-word">${composition?formatProtected(entry.word,'','ja'):esc(entry.word)}</div>
+        ${revealed&&!composition?`<div class="test-meaning">${esc(entry.translation)}</div>`:''}
       </div>
-      <div class="test-bottom">${revealed?`<div class="test-bottom-inner"><p class="test-example">${formatExample(entry.example, entry.highlight)}</p><p class="test-ja">${esc(entry.exampleJa)}</p></div>`:''}</div>
+      <div class="test-bottom">${revealed ? (composition ? `<div class="test-bottom-inner"><p class="composition-test-answer">${formatProtected(entry.translation)}</p></div>`:
+        `<div class="test-bottom-inner"><p class="test-example">${formatExample(entry.example,entry.highlight)}</p><p class="test-ja">${formatProtected(entry.exampleJa,'','ja')}</p></div>`) : ''}</div>
     </button>
     <div class="tap-indicator" aria-hidden="true">${svg.hand}</div>
     <button type="button" class="test-prev" data-action="prev-test" aria-label="前の単語に戻る" ${state.testIndex===0?'disabled':''}>${svg.back}<span>前へ</span></button>
@@ -365,58 +372,36 @@ app.addEventListener('click',async event=>{
     }
     case 'restart-test': state.testIndex=0;state.testRevealed=false;state.testFinished=false;renderTest();return;
     case 'return-list': state.view='list';renderList();return;
-    case 'import-csv': fileInput.click();return;
-    case 'delete-set': {
-      const set=state.sets.find(s=>s.id===button.dataset.id && s.kind==='local');
-      if (!set || !confirm(`「${set.title}」を削除しますか？`)) return;
-      await dbChange(DECK_STORE,'delete',set.id);
-      await clearDeckStars(set.id);
-      state.sets=state.sets.filter(s=>s.id!==set.id);
-      renderMenu();return;
-    }
     }
   } catch(error) {toast(error.message||'操作できませんでした');}
 });
-fileInput.addEventListener('change',async()=>{
-  const files=Array.from(fileInput.files||[]);fileInput.value='';
-  if (!files.length) return;
-  let success=0;const errors=[];
-  for (const file of files) {
-    try {
-      if (!/\.csv$/i.test(file.name)) throw new Error('CSVを選択してください。');
-      if (file.size>15*1024*1024) throw new Error('15MB以下にしてください。');
-      const entries=parseCSV(await file.text());
-      const existing=state.sets.find(s=>s.kind==='local'&&s.fileName===file.name);
-      const record={id: existing?.id||`local-${Date.now()}-${Math.random().toString(36).slice(2,9)}`,
-        kind:'local',fileName:file.name,title:basename(file.name),entries,savedAt:new Date().toISOString()};
-      await dbChange(DECK_STORE,'put',record);
-      state.sets=state.sets.filter(s=>s.id!==record.id);
-      state.sets.push(record);success++;
-    } catch(error) {errors.push(`${file.name}: ${error.message}`);}
-  }
-  state.sets.sort((a,b)=>Number(a.kind==='local')-Number(b.kind==='local'));
-  renderMenu();
-  if (success) toast(`${success}件追加しました`);
-  if (errors.length) alert(errors.join('\n'));
-});
 async function boot() {
-  const bundled=[];
-  for (const fileName of BUNDLED_CSV_FILES) {
-    try {
-      const response=await fetch(`./VocabularySets/${encodeURIComponent(fileName)}?v=5`);
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const entries=parseCSV(await response.text());
-      bundled.push({id:`bundled:${fileName}`,kind:'bundled',fileName,title:basename(fileName),entries});
-    } catch(error) {state.startupError+=`CSVを読み込めません：${fileName} (${error.message}) `;}
-  }
-  let local=[];
+  const bundled = [];
   try {
-    const [storedSets,stars]=await Promise.all([dbAll(DECK_STORE),dbAll(REVIEW_STORE)]);
-    local=storedSets.map(s=>({...s,entries:normalizeEntries(s.entries || [])}));
-    state.starred=new Set(stars.map(s=>s.id));
-  } catch(error) {state.startupError+='端末内保存を使用できません。';}
-  state.sets=[...bundled,...local];renderMenu();
-  if ('serviceWorker' in navigator && (location.protocol==='https:'||location.hostname==='localhost'||location.hostname==='127.0.0.1')) {
+    // GitHub Actionsはアップロードの都度このJSONを再生成する（手動リスト編集は不要）。
+    const catalogResponse = await fetch(CATALOG_URL, {cache:'no-store'});
+    if (!catalogResponse.ok) throw new Error(`一覧ファイル HTTP ${catalogResponse.status}`);
+    const catalog = await catalogResponse.json();
+    if (!Array.isArray(catalog.files)) throw new Error('CSV一覧ファイルの形式が違います。');
+    for (const item of catalog.files) {
+      const fileName = typeof item === 'string' ? item : item.name;
+      if (!fileName || fileName.includes('/') || fileName.includes('\\') || !/\.csv$/i.test(fileName)) continue;
+      try {
+        const response = await fetch(`./VocabularySets/${encodeURIComponent(fileName)}`);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const parsed = parseCSV(await response.text());
+        bundled.push({id:`bundled:${fileName}`, kind:'bundled', fileName, title:basename(fileName), mode:parsed.mode, entries:parsed.entries});
+      } catch (error) {state.startupError+=`${fileName}：${error.message} `;}
+    }
+  } catch (error) {state.startupError=`CSVの一覧を読み込めません：${error.message}。GitHub Actionsの公開設定を確認してください。`;}
+  try {
+    // 復習⭐の保存元は以前と共通。旧ローカルCSVの表示・追加は行わない。
+    const stars = await dbAll(REVIEW_STORE);
+    state.starred = new Set(stars.map(s=>s.id));
+  } catch (_) { state.startupError+='⭐の保存を利用できません。'; }
+  state.sets = bundled;
+  renderMenu();
+  if ('serviceWorker' in navigator && (location.protocol==='https:' || location.hostname==='localhost'||location.hostname==='127.0.0.1')) {
     navigator.serviceWorker.register('./sw.js').catch(error=>console.warn('Offline cache:',error));
   }
 }
